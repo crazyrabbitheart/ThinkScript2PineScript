@@ -1,0 +1,175 @@
+//@version=5
+indicator("Hedge Fund Trender", shorttitle="HFT", overlay=true)
+
+// Inputs
+DisplayTrailStop = input(true, title="Display Trail Stop")
+DisplayBreakOutLines = input(true, title="Display Breakout Lines")
+AlertsOn = input(true, title="Enable Alerts")
+
+DotSpace = input.float(0.25, title="Dot Space", step=0.01)
+EntryDotSize = input.int(5, title="Entry Dot Size", minval=1, maxval=5)
+//TrailDotSize = input.int(2, title="Trail Dot Size", minval=1, maxval=5)
+
+// Logic
+Period = 9
+BuyEntry = 55
+SellEntry = 55
+BuyExit = 20
+SellExit = 20
+
+LastBuyTrailStop = 0.0
+LastSellTrailStop = 0.0
+
+VarDot = ta.atr(21) * DotSpace
+HH = ta.highest(math.max(open, close), Period)
+ProRange = HH - ta.lowest(math.min(open, close), Period)
+VProR = ProRange != 0 ? 100 - ((HH - close) / ProRange) * 100 : 0
+
+VPosition = VProR < 30 and VProR[1] >= 30 ? -1 : VProR > 70 and VProR[1] <= 70 ? 1 : na
+
+buySignal = VPosition == 1 and VPosition[1] < 1
+sellSignal = VPosition == -1 and VPosition[1] > -1
+buyTrend = (VPosition == 1 and VPosition[1] == 1) or ((VPosition == -1 and VPosition[1] > -1) and VPosition[1] != 0)
+sellTrend = (VPosition == -1 and VPosition[1] == -1) or ((VPosition == 1 and VPosition[1] < 1) and VPosition[1] != 0)
+
+Sell = sellSignal ? high + VarDot : na
+plotshape(series=Sell, color=color.red, style=shape.triangledown, size=size.normal, location=location.abovebar, offset=-1)
+Buy = buySignal ? low - VarDot : na
+plotshape(series=Buy, color=color.blue, style=shape.triangleup, size=size.normal, location=location.belowbar, offset=-1)
+
+BuyTrailStart = 0.0
+BuyTrail = 0.0
+BuyDotGap = 0.0
+BuyIncrement = 0.0
+BuyGap = 0.0
+lowest = ta.lowest(low,4)
+
+if buySignal
+    BuyTrailStart := lowest
+    BuyTrail:= BuyTrailStart
+    BuyDotGap:=(close-lowest)*1
+else
+    BuyTrailStart := BuyTrailStart[1]
+    if buyTrend
+        BuyTrail := LastBuyTrailStop[1]
+    else
+        BuyTrail := na
+    BuyDotGap := BuyDotGap[1]
+
+
+if buyTrend and high[1] > ta.highest(high, 5)[2]
+    BuyIncrement := close[1]-ta.highest(high, 3)[2]    
+else
+    BuyIncrement:=0
+
+if buyTrend and (low - BuyTrail) > ta.atr(10)*2
+    BuyGap := (low - BuyTrail) - ta.atr(10)*2
+else if buyTrend and (low - LastBuyTrailStop[1])-BuyDotGap > 0
+    BuyGap := low - LastBuyTrailStop[1]-BuyDotGap
+else
+    BuyGap := 0
+
+
+SellTrailStart = 0.0
+SellTrail = 0.0
+SellDotGap = 0.0
+SellIncrement =0.0
+SellGap =0.0
+highest = ta.highest(high,4)
+
+if sellSignal
+    SellTrailStart := highest
+    SellTrail:= SellTrailStart
+    SellDotGap:=(close - highest) * 1.0
+else
+    SellTrailStart := SellTrailStart[1]
+    if sellTrend
+        SellTrail:= LastSellTrailStop[1]
+    else
+        SellTrail:=na
+    SellDotGap:=SellDotGap[1]
+
+if sellTrend and low[1] < ta.lowest(low, 5)[2] 
+    SellIncrement := (close[1] - ta.lowest(low, 3)[2]) 
+else
+    SellIncrement := 0
+
+if sellTrend and SellTrail - high > ta.atr(10) * 2 
+    SellGap := ta.atr(10) * 2 - (SellTrail - high) 
+else if sellTrend and (high - LastSellTrailStop[1]) - SellDotGap < 0 
+    SellGap := high - LastSellTrailStop[1] - SellDotGap
+else
+    SellGap := 0
+
+_TrailStop = buySignal ? BuyTrail : buyTrend ? math.max(LastBuyTrailStop[1], LastBuyTrailStop[1] + math.max(BuyIncrement, BuyGap)) : sellSignal ? SellTrail : sellTrend ? math.min(LastSellTrailStop[1], LastSellTrailStop[1] + math.min(SellIncrement, SellGap)) : na
+float TrailStop = na
+if DisplayTrailStop
+    TrailStop := _TrailStop
+
+plot(TrailStop, color=buySignal or buyTrend ? color.green : color.maroon, style=plot.style_stepline, linewidth=1)
+
+LastBuyTrailStop := buySignal ? BuyTrail : buyTrend ? TrailStop : na
+LastSellTrailStop := sellSignal ? SellTrail : sellTrend ? TrailStop : na
+
+BuyLevel = ta.highest(high, BuyEntry)[1]
+SellLevel = ta.lowest(low, SellEntry)[1]
+
+SwitchSide = 0
+SwitchSide := high > BuyLevel and SwitchSide[1] < 1 ? 1 : low < SellLevel and SwitchSide[1] > -1 ? -1 : SwitchSide[1]
+
+condition1 = SwitchSide == 1 and SwitchSide[1] == 1
+condition2 = SwitchSide == -1 and SwitchSide[1] == -1
+
+BuyExitLevel = 0.0
+SellExitLevel = 0.0
+// lowcond = ta.lowest(low, BuyExit)[1] 
+// highcond = ta.highest(high,SellExit)[1]
+
+// if  condition1
+//     if na(BuyExitLevel[1])
+//         BuyExitLevel := lowcond
+//     else
+//         BuyExitLevel := math.max(BuyExitLevel[1],lowcond)
+//     SellExitLevel := BuyLevel
+// else 
+//     if condition2
+//         BuyExitLevel := SellLevel
+//     else
+//         BuyExitLevel:=BuyExitLevel[1]
+//     BuyExitLevel := na
+
+    
+
+
+// if  condition1
+//     if na(BuyExitLevel[1])
+//         BuyExitLevel := lowcond
+//     else
+//         BuyExitLevel := math.max(BuyExitLevel[1],lowcond)
+// else 
+//     BuyExitLevel := na
+
+// if condition2
+//     BuyExitLevel := SellLevel
+// else
+//     BuyExitLevel:=BuyExitLevel[1]
+
+// SellExitLevel := ta.barssince(condition1) ? BuyLevel : ta.barssince(condition2) ? na : math.min(SellExitLevel[1], ta.highest(high, SellExit)[1])
+
+BuyExitLevel := ta.barssince(condition1) ? na : ta.barssince(condition2) ? SellLevel : math.max(BuyExitLevel[1], ta.lowest(low, BuyExit)[1])
+SellExitLevel := ta.barssince(condition1) ? BuyLevel : ta.barssince(condition2) ? na : math.min(SellExitLevel[1], ta.highest(high, SellExit)[1])
+
+BEntry = DisplayBreakOutLines ? SwitchSide != 0 ? BuyLevel : na : na
+plot(BEntry, color=SwitchSide == 1 ? color.green : color.red, style=plot.style_cross, linewidth=2)
+
+BExit = DisplayBreakOutLines ? SwitchSide != 0 ? BuyExitLevel : na : na
+plot(BExit, color=color.red, style=plot.style_cross, linewidth=2)//, linestyle=plot.style_line)
+
+SEntry = DisplayBreakOutLines ? SwitchSide != 0 ? SellLevel : na : na
+plot(SEntry, color=SwitchSide == 1 ? color.green : color.red, style=plot.style_cross, linewidth=2)
+
+SExit = DisplayBreakOutLines ? SwitchSide != 0 ? SellExitLevel : na : na
+plot(SExit, color=color.green, style=plot.style_cross, linewidth=2)//, linetype=plot.style_line)
+
+alertcondition(buySignal and AlertsOn, title="Hedge Fund Trender Buy Alert", message="Hedge Fund Trender Buy Alert")
+alertcondition(sellSignal and AlertsOn, title="Hedge Fund Trender Sell Alert", message="Hedge Fund Trender Sell Alert")
